@@ -171,11 +171,11 @@ float cubeVerts[] = {
 	-5.f, 10.f,  5.f,
 };
 GLubyte cubeIdx[] = {
-	1, 0, 2, 3, // Floor - TriangleStrip
-	0, 1, 5, 4, // Wall - Lines
-	1, 2, 6, 5, // Wall - Lines
-	2, 3, 7, 6, // Wall - Lines
-	3, 0, 4, 7  // Wall - Lines
+	0, 0, 0, 0, // Floor - TriangleStrip
+	0, 0, 0, 0, // Wall - Lines
+	0, 0, 0, 0, // Wall - Lines
+	0, 0, 0, 0, // Wall - Lines
+	0, 0, 0, 0  // Wall - Lines
 };
 
 const char* vertShader_xform =
