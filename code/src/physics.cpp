@@ -6,6 +6,8 @@
 #include <glm/gtx/intersect.hpp>
 #include <math.h>
 
+#define PI (3.141592653589793)
+
 bool show_test_window = false;
 
 const int clothMeshLines(18);
@@ -15,7 +17,7 @@ float particleInitRest;
 bool pause = false;
 bool reset_ = false;
 
-float t = 0.f;				//time
+float t = 0.f;					//time
 float tRestart = 15.f;			//time to restart
 
 //Gerstner Waves variables
@@ -34,7 +36,7 @@ float O[3];					//frequency
 float L[3];					//lambda, distance between wave crests
 glm::vec3 K = { 1, 0, 0 };	//wave vector
 float k[3];					//wave lenght, k = 2*pi/L
-float p;					//phase of the wave
+float p[3];					//phase of the wave
 
 //Bouyancy Forces
 
@@ -48,7 +50,8 @@ glm::vec3 a;	//sphere acceleration
 glm::vec3 v;
 
 glm::vec3 F;	//sphere total forces
-glm::vec3 Fb;	//y from F buoyancy
+glm::vec3 Fb;	//F buoyancy
+glm::vec3 Fa;	//accelaration force
 
 glm::vec3 sphPos;	//sphere position
 float radius = 1.f;	//sphere radius
@@ -58,6 +61,13 @@ float h;
 
 float auxX, distX = 0;
 int lineCloser;
+
+//Drag Force
+glm::vec3 Fd;					//drag force
+glm::vec3 U;					//fluid material
+float Area;						//relative area
+float AreaR;					//relative area radius
+const float Cd = 0.47f;			//drag coeficient sphere
 
 //Namespaces
 namespace Sphere {
@@ -105,13 +115,16 @@ void reset()
 	A[0] = 0.25f;					A[1] = 0.5f;					A[2] = 0.75f;
 	O[0] = 0.75;					O[1] = 1.;						O[2] = 1.25;
 	L[0] = 0.2f;					L[1] = 0.5f;					L[2] = 0.8f;
-	k[0] = 2.f * 3.1415 / L[0];		k[1] = 2.f * 3.1415 / L[1];		k[2] = 2.f * 3.1415 / L[2];
+	k[0] = 2.f * PI / L[0];			k[1] = 2.f * PI / L[1];			k[2] = 2.f * PI / L[2];
+	p[0] = 0.5f;					p[1] = 1.2f;					p[2] = 0.8f;
 
-	p = 3;
+	Fb = a = v = F = Fa = { 0.f, 0.f, 0.f };
 
-	Fb = a = v = F = { 0.f, 0.f, 0.f };
-
-	sphPos = { 2, 5, 2 };
+	sphPos = glm::vec3{
+		-4 + static_cast <float> (rand()) / (static_cast <float> (RAND_MAX / (8))),
+		2 + static_cast <float> (rand()) / (static_cast <float> (RAND_MAX / (2))),
+		-4 + static_cast <float> (rand()) / (static_cast <float> (RAND_MAX / (8))),
+	};
 
 	particleInitRest = 9.f / clothMeshLines;
 
@@ -138,13 +151,16 @@ void PhysicsInit() {
 	A[0] = 0.25f;					A[1] = 0.5f;					A[2] = 0.75f;
 	O[0] = 0.75;					O[1] = 1.;						O[2] = 1.25;
 	L[0] = 0.2f;					L[1] = 0.5f;					L[2] = 0.8f;
-	k[0] = 2.f * 3.1415 / L[0];		k[1] = 2.f * 3.1415 / L[1];		k[2] = 2.f * 3.1415 / L[2];
+	k[0] = 2.f * PI / L[0];			k[1] = 2.f * PI / L[1];			k[2] = 2.f * PI / L[2];
+	p[0] = 0.5f;					p[1] = 1.2f;					p[2] = 0.8f;
 
-	p = 3;
+	Fb = a = v = F = Fa = { 0.f, 0.f, 0.f };
 
-	Fb = a = v = F = { 0.f, 0.f, 0.f };
-
-	sphPos = { 2, 5, 2 };
+	sphPos = glm::vec3{
+		-4 + static_cast <float> (rand()) / (static_cast <float> (RAND_MAX / (8))),
+		2 + static_cast <float> (rand()) / (static_cast <float> (RAND_MAX / (2))),
+		-4 + static_cast <float> (rand()) / (static_cast <float> (RAND_MAX / (8))),
+	};
 
 	particleInitRest = 9.f / clothMeshLines;
 
@@ -173,8 +189,8 @@ void PhysicsUpdate(float dt) {
 				lastPosition[getPosInArray(i, j)] = position[getPosInArray(i, j)];
 
 				for (int z = 0; z < nWaves; z++) {
-					sumX += (K.x / k[z]) * A[z] * sin(k[z] * firstPosition[getPosInArray(i, j)].x - O[z] * t + p);
-					sumY += A[z] * cos(K.x * firstPosition[getPosInArray(i, j)].x - O[z] * t + p);
+					sumX += (K.x / k[z]) * A[z] * sin(k[z] * firstPosition[getPosInArray(i, j)].x - O[z] * t + p[z]);
+					sumY += A[z] * cos(K.x * firstPosition[getPosInArray(i, j)].x - O[z] * t + p[z]);
 				}
 
 				position[getPosInArray(i, j)].x = firstPosition[getPosInArray(i, j)].x - sumX;
@@ -208,42 +224,54 @@ void PhysicsUpdate(float dt) {
 
 		dist = position[getPosInArray(lineCloser, 0)].y - sphPos.y;
 
-		//get volume inside water
+		//get volume and area inside water
 
 		if (std::abs(dist) < radius)
 		{
+			h = radius - std::abs(dist);
+
 			if (dist < 0 || dist == 0)
 			{
-				h = radius - std::abs(dist);
-				V = ((3.1415f * h * h) / 3.f) * (3.f * radius - h);
+				V = ((PI * h * h) / 3.f) * (3.f * radius - h);
+				AreaR = h;
 			}
 			else
 			{
-				h = radius - std::abs(dist);
-				V = ((4.f / 3.f) * 3.1415f * radius * radius * radius) - ((3.1415f * h * h) / 3.f) * (3.f * radius - h);
+				V = ((4.f / 3.f) * PI * radius * radius * radius) - ((PI * h * h) / 3.f) * (3.f * radius - h);
+				AreaR = radius;
 			}
 		}
 		else if (dist < sphPos.y)
 		{
 			V = 0;
+			AreaR = 0;
 		}
 		else
 		{
-			V = (4.f / 3.f) * 3.1415f * radius * radius * radius;
+			V = (4.f / 3.f) * PI * radius * radius * radius;
+			AreaR = radius;
 		}
+
+		//calculate U and relative area
+
+		U = (position[getPosInArray(lineCloser, 0)] - lastPosition[getPosInArray(lineCloser, 0)]) + v;	//fluid velocity + object velocity = relative velocity
+		Area = PI * AreaR * AreaR;
 
 		//calculate forces and velocity
 
 		g.x = g_[0]; g.y = g_[1]; g.z = g_[2];
 
-		Fb = d * g * V;
-		F = g - Fb;
+		Fb = d * glm::abs(g) * V * glm::vec3{ 0.f, 1.f, 0.f };
+		Fa = g * m;
+		Fd = -0.5f * d * Cd * Area * glm::length(U) * U * glm::vec3{ 0.f, 1.f, 0.f };
+
+		F = Fa + Fb + Fd;
 
 		a = F / m;
 
-		v += a * dt;
+		v += F * dt;
 
-		sphPos += v;
+		sphPos += v * dt;
 
 		t += dt;
 
